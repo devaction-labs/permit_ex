@@ -10,8 +10,8 @@ Add `:absinthe` to your dependencies and configure PermitEx normally:
 ```elixir
 def deps do
   [
-    {:permit_ex, "~> 0.1"},
-    {:absinthe, "~> 1.7"},
+    {:permit_ex, "~> 0.3.0"},
+    {:absinthe, "~> 1.10"},
     {:absinthe_plug, "~> 1.5"}
   ]
 end

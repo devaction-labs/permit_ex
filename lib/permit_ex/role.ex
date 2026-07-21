@@ -11,6 +11,8 @@ defmodule PermitEx.Role do
 
   import Ecto.Changeset
 
+  @context_id_type Application.compile_env(:permit_ex, :context_id_type, Ecto.UUID)
+
   @primary_key {:id, Ecto.UUID, autogenerate: true}
   @foreign_key_type Ecto.UUID
   @timestamps_opts [type: :utc_datetime_usec]
@@ -19,7 +21,7 @@ defmodule PermitEx.Role do
           id: Ecto.UUID.t() | nil,
           name: String.t() | nil,
           description: String.t() | nil,
-          context_id: Ecto.UUID.t() | nil,
+          context_id: term() | nil,
           locked: boolean(),
           inserted_at: DateTime.t() | nil,
           updated_at: DateTime.t() | nil
@@ -28,7 +30,7 @@ defmodule PermitEx.Role do
   schema "permit_ex_roles" do
     field(:name, :string)
     field(:description, :string)
-    field(:context_id, Ecto.UUID)
+    field(:context_id, @context_id_type)
     field(:locked, :boolean, default: false)
 
     has_many(:role_permissions, PermitEx.RolePermission)

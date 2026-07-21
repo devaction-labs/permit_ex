@@ -16,7 +16,7 @@ defmodule <%= module %> do
       add :id, :uuid, primary_key: true
       add :name, :string, null: false
       add :description, :text
-      add :context_id, :uuid
+      add :context_id, :<%= id_type %>
       add :locked, :boolean, null: false, default: false
 
       timestamps(type: :utc_datetime_usec)
@@ -48,8 +48,8 @@ defmodule <%= module %> do
     create index(:permit_ex_role_permissions, [:permission_id])
 
     create table(:permit_ex_user_roles, primary_key: false) do
-      add :user_id, :uuid, null: false
-      add :context_id, :uuid
+      add :user_id, :<%= id_type %>, null: false
+      add :context_id, :<%= id_type %>
 
       add :role_id, references(:permit_ex_roles, type: :uuid, on_delete: :delete_all),
         null: false

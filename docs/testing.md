@@ -23,6 +23,20 @@ Stop the container:
 docker compose down
 ```
 
+## Optional features in tests
+
+Cache, wildcards, and super roles are controlled by application env and are
+safe to toggle per-test:
+
+```elixir
+setup do
+  previous = Application.get_env(:permit_ex, :cache)
+  Application.put_env(:permit_ex, :cache, true)
+  on_exit(fn -> Application.put_env(:permit_ex, :cache, previous) end)
+  :ok
+end
+```
+
 ## GitHub Actions
 
 The repository includes a GitHub Actions workflow with a PostgreSQL service

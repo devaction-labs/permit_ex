@@ -8,6 +8,16 @@ This guide shows how to use PermitEx with Phoenix controllers and LiveView.
 config :permit_ex, repo: MyApp.Repo
 ```
 
+Optional production features (all off by default):
+
+```elixir
+config :permit_ex,
+  cache: true,
+  cache_ttl: :timer.minutes(5),
+  wildcards: true,
+  super_roles: ["super_admin"]
+```
+
 ## Load Permission Data into Your Scope
 
 PermitEx does not replace your authentication system. Use `phx.gen.auth`,
@@ -61,11 +71,11 @@ plug PermitEx.Plug.RequireAuthorization,
   role: "admin"
 ```
 
-If your scope is stored under another assign:
+If your scope is stored under another assign, use the keyword form:
 
 ```elixir
 plug PermitEx.Plug.RequirePermission,
-  "orders:manage",
+  permission: "orders:manage",
   assign_key: :auth_scope
 ```
 
@@ -92,6 +102,31 @@ Use `RequireAuthorization` for redirects and flash messages:
  flash: {:error, "You cannot access that page."}}
 ```
 
+After changing roles in a long-lived LiveView:
+
+```elixir
+scope = PermitEx.Scope.reload(socket.assigns.current_scope)
+{:noreply, assign(socket, :current_scope, scope)}
+```
+
+## Templates (HEEx)
+
+```elixir
+import PermitEx.Components
+
+<.permit_can scope={@current_scope} permission="orders:manage">
+  <.link navigate={~p"/orders/new"}>New order</.link>
+</.permit_can>
+```
+
+Or check inline:
+
+```elixir
+<%= if PermitEx.can?(@current_scope, "orders:manage") do %>
+  ...
+<% end %>
+```
+
 ## Event Handlers
 
 Route guards protect page access. For mutations, check again inside event
@@ -112,5 +147,6 @@ end
 ## Notes
 
 - PermitEx is authorization, not authentication.
+- Users receive permissions **only through roles** (no direct user permissions).
 - Use contexts only when your app needs scoped roles.
 - For long-lived LiveViews, reload the scope after changing a user's roles.

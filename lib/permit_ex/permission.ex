@@ -14,6 +14,14 @@ defmodule PermitEx.Permission do
   @foreign_key_type Ecto.UUID
   @timestamps_opts [type: :utc_datetime_usec]
 
+  @type t :: %__MODULE__{
+          id: Ecto.UUID.t() | nil,
+          name: String.t() | nil,
+          description: String.t() | nil,
+          inserted_at: DateTime.t() | nil,
+          updated_at: DateTime.t() | nil
+        }
+
   schema "permit_ex_permissions" do
     field(:name, :string)
     field(:description, :string)
@@ -27,7 +35,7 @@ defmodule PermitEx.Permission do
     permission
     |> cast(attrs, [:name, :description])
     |> validate_required([:name])
-    |> validate_format(:name, ~r/\A[a-z0-9_]+:[a-z0-9_]+\z/,
+    |> validate_format(:name, ~r/\A[a-z0-9_]+:[a-z0-9_*]+\z/,
       message: "must use resource:action format"
     )
     |> validate_length(:name, max: 120)

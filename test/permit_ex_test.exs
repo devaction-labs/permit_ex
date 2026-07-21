@@ -9,6 +9,12 @@ defmodule PermitExTest do
     def authorize(scope, resource, _opts), do: scope.user_id == resource.owner_id
   end
 
+  defmodule OptPolicy do
+    @behaviour PermitEx.Policy
+
+    def authorize(_scope, _resource, opts), do: Keyword.get(opts, :allow, false)
+  end
+
   describe "can?/2" do
     test "checks map scopes with MapSet permissions" do
       scope = %{permissions: MapSet.new(["orders:view", "orders:manage"])}
@@ -39,6 +45,16 @@ defmodule PermitExTest do
     end
   end
 
+  describe "can_any?/can_all?" do
+    test "checks multiple permissions" do
+      scope = %{permissions: MapSet.new(["orders:view"])}
+
+      assert PermitEx.can_any?(scope, ["orders:view", "orders:manage"])
+      refute PermitEx.can_all?(scope, ["orders:view", "orders:manage"])
+      assert PermitEx.can_all?(scope, ["orders:view"])
+    end
+  end
+
   describe "has_role?/2" do
     test "checks scopes with role names" do
       scope = %{roles: ["admin", "billing"]}
@@ -52,6 +68,18 @@ defmodule PermitExTest do
     end
   end
 
+  describe "has_any_role?/has_all_roles?/authorize_role" do
+    test "checks multiple roles" do
+      scope = %{roles: ["admin", "billing"]}
+
+      assert PermitEx.has_any_role?(scope, ["admin", "viewer"])
+      assert PermitEx.has_all_roles?(scope, ["admin", "billing"])
+      refute PermitEx.has_all_roles?(scope, ["admin", "viewer"])
+      assert PermitEx.authorize_role(scope, "admin") == :ok
+      assert PermitEx.authorize_role(scope, "viewer") == {:error, :unauthorized}
+    end
+  end
+
   describe "normalize helpers" do
     test "normalizes permission and role inputs" do
       assert PermitEx.normalize_permission(:orders_manage) == "orders_manage"
@@ -59,19 +87,91 @@ defmodule PermitExTest do
     end
   end
 
-  describe "allowed?/4" do
+  describe "allowed?/4 and authorize/4" do
     test "combines RBAC and resource policy checks" do
       scope = %{user_id: "user-1", permissions: ["orders:manage"]}
 
       assert PermitEx.allowed?(scope, "orders:manage", %{owner_id: "user-1"}, policy: OwnerPolicy)
 
       refute PermitEx.allowed?(scope, "orders:manage", %{owner_id: "user-2"}, policy: OwnerPolicy)
+
+      assert PermitEx.authorize(scope, "orders:manage", %{owner_id: "user-1"},
+               policy: OwnerPolicy
+             ) ==
+               :ok
+
+      assert PermitEx.authorize(scope, "orders:manage", %{owner_id: "user-2"},
+               policy: OwnerPolicy
+             ) ==
+               {:error, :unauthorized}
     end
 
     test "returns false when permission check fails regardless of policy" do
       scope = %{user_id: "user-1", permissions: []}
 
       refute PermitEx.allowed?(scope, "orders:manage", %{owner_id: "user-1"}, policy: OwnerPolicy)
+    end
+
+    test "forwards opts to the policy module" do
+      scope = %{permissions: ["orders:view"]}
+
+      assert PermitEx.allowed?(scope, "orders:view", %{}, policy: OptPolicy, allow: true)
+      refute PermitEx.allowed?(scope, "orders:view", %{}, policy: OptPolicy, allow: false)
+    end
+  end
+
+  describe "wildcards" do
+    setup do
+      previous = Application.get_env(:permit_ex, :wildcards)
+      Application.put_env(:permit_ex, :wildcards, true)
+      on_exit(fn -> Application.put_env(:permit_ex, :wildcards, previous) end)
+      :ok
+    end
+
+    test "orders:* matches orders:view" do
+      scope = %{permissions: MapSet.new(["orders:*"])}
+
+      assert PermitEx.can?(scope, "orders:view")
+      assert PermitEx.can?(scope, "orders:manage")
+      refute PermitEx.can?(scope, "settings:view")
+    end
+
+    test "* matches every permission" do
+      scope = %{permissions: MapSet.new(["*"])}
+
+      assert PermitEx.can?(scope, "orders:view")
+      assert PermitEx.can?(scope, "settings:manage")
+    end
+  end
+
+  describe "super_roles" do
+    setup do
+      previous = Application.get_env(:permit_ex, :super_roles)
+      Application.put_env(:permit_ex, :super_roles, ["super_admin"])
+      on_exit(fn -> Application.put_env(:permit_ex, :super_roles, previous) end)
+      :ok
+    end
+
+    test "super role grants every permission" do
+      scope = %{roles: ["super_admin"], permissions: MapSet.new()}
+
+      assert PermitEx.can?(scope, "orders:manage")
+      assert PermitEx.can?(scope, "settings:delete")
+    end
+
+    test "non-super role still requires permissions" do
+      scope = %{roles: ["viewer"], permissions: MapSet.new(["orders:view"])}
+
+      assert PermitEx.can?(scope, "orders:view")
+      refute PermitEx.can?(scope, "orders:manage")
+    end
+  end
+
+  describe "Scope.put_assign/3" do
+    test "stores extra data on assigns" do
+      scope = %PermitEx.Scope{} |> PermitEx.Scope.put_assign(:workspace, "ws-1")
+
+      assert scope.assigns.workspace == "ws-1"
     end
   end
 

@@ -316,13 +316,143 @@ defmodule PermitExDbTest do
 
       assert %Permission{id: permission_id} = PermitEx.get_permission_by_name("settings:manage")
       assert permission_id == permission.id
+      assert PermitEx.get_permission(permission.id).id == permission.id
 
       assert %Role{id: role_id} = PermitEx.get_role_by_name("owner")
       assert role_id == role.id
+      assert PermitEx.get_role_by_id(role.id).id == role.id
 
       assert [%Permission{name: "settings:manage"}] = PermitEx.list_role_permissions(role)
       assert [^user_id] = PermitEx.users_with_role("owner")
+      assert [^user_id] = PermitEx.users_with_permission("settings:manage")
       assert [%UserRole{user_id: ^user_id}] = PermitEx.list_user_roles(user_id)
+    end
+  end
+
+  describe "give_permission and revoke_permission" do
+    test "adds and removes permissions without full sync" do
+      {:ok, _} = PermitEx.upsert_permission("orders:view")
+      {:ok, _} = PermitEx.upsert_permission("orders:manage")
+      {:ok, role} = PermitEx.upsert_role("editor")
+
+      {:ok, 1} = PermitEx.give_permission(role, "orders:view")
+      {:ok, 1} = PermitEx.give_permission(role, "orders:manage")
+      {:ok, 0} = PermitEx.give_permission(role, "orders:view")
+
+      names = role |> PermitEx.list_role_permissions() |> Enum.map(& &1.name) |> Enum.sort()
+      assert names == ["orders:manage", "orders:view"]
+
+      {:ok, 1} = PermitEx.revoke_permission(role, "orders:manage")
+      assert [%Permission{name: "orders:view"}] = PermitEx.list_role_permissions(role)
+    end
+  end
+
+  describe "locked roles" do
+    test "blocks mutation without force?" do
+      {:ok, _} = PermitEx.upsert_permission("orders:view")
+      {:ok, role} = PermitEx.upsert_role("locked_admin", %{locked: true})
+
+      assert PermitEx.give_permission(role, "orders:view") == {:error, :role_locked}
+      assert PermitEx.sync_permissions(role, ["orders:view"]) == {:error, :role_locked}
+      assert PermitEx.delete_role(role) == {:error, :role_locked}
+
+      assert {:ok, 1} = PermitEx.give_permission(role, "orders:view", force?: true)
+      assert {:ok, _} = PermitEx.delete_role(role, force?: true)
+    end
+  end
+
+  describe "seed! with context_id" do
+    test "creates context roles" do
+      context_id = Ecto.UUID.generate()
+
+      {:ok, :ok} =
+        PermitEx.seed!(
+          [
+            permissions: [{"orders:view", "View"}],
+            roles: [{"viewer", "Viewer", ["orders:view"]}]
+          ],
+          context_id: context_id
+        )
+
+      role = PermitEx.get_role_by_name("viewer", context_id)
+      assert role.context_id == context_id
+      assert [%Permission{name: "orders:view"}] = PermitEx.list_role_permissions(role)
+    end
+  end
+
+  describe "update_role and update_permission" do
+    test "updates description fields" do
+      {:ok, permission} = PermitEx.upsert_permission("orders:view", %{description: "old"})
+      {:ok, role} = PermitEx.upsert_role("viewer", %{description: "old"})
+
+      {:ok, permission} = PermitEx.update_permission(permission, %{description: "new p"})
+      {:ok, role} = PermitEx.update_role(role, %{description: "new r"})
+
+      assert permission.description == "new p"
+      assert role.description == "new r"
+    end
+  end
+
+  describe "Scope.put_permission_data and reload" do
+    test "loads real roles and permissions into a map and reloads" do
+      user_id = Ecto.UUID.generate()
+
+      {:ok, _} = PermitEx.upsert_permission("orders:view")
+      {:ok, role} = PermitEx.upsert_role("viewer")
+      {:ok, _} = PermitEx.sync_permissions(role, ["orders:view"])
+      {:ok, _} = PermitEx.assign_role(user_id, "viewer")
+
+      map = %{user: "alex"}
+      enriched = PermitEx.Scope.put_permission_data(map, user_id)
+
+      assert enriched.user == "alex"
+      assert Enum.any?(enriched.roles, &(&1.name == "viewer"))
+      assert MapSet.member?(enriched.permissions, "orders:view")
+
+      scope = PermitEx.Scope.for_user(user_id)
+      {:ok, _} = PermitEx.give_permission(role, "orders:view")
+      reloaded = PermitEx.Scope.reload(scope)
+
+      assert reloaded.user_id == user_id
+      assert MapSet.member?(reloaded.permissions, "orders:view")
+    end
+  end
+
+  describe "cache" do
+    setup do
+      previous = Application.get_env(:permit_ex, :cache)
+      Application.put_env(:permit_ex, :cache, true)
+      PermitEx.Cache.init()
+      PermitEx.Cache.invalidate_all()
+
+      on_exit(fn ->
+        PermitEx.Cache.invalidate_all()
+        Application.put_env(:permit_ex, :cache, previous)
+      end)
+
+      :ok
+    end
+
+    test "returns cached scope data and invalidates on role assign" do
+      user_id = Ecto.UUID.generate()
+
+      {:ok, _} = PermitEx.upsert_permission("orders:view")
+      {:ok, role} = PermitEx.upsert_role("viewer")
+      {:ok, _} = PermitEx.sync_permissions(role, ["orders:view"])
+      {:ok, _} = PermitEx.assign_role(user_id, "viewer")
+
+      {roles1, perms1} = PermitEx.scope_data_for(user_id)
+      {roles2, perms2} = PermitEx.scope_data_for(user_id)
+
+      assert roles1 == roles2
+      assert perms1 == perms2
+      assert MapSet.member?(perms1, "orders:view")
+
+      {:ok, _} = PermitEx.upsert_role("admin")
+      {:ok, _} = PermitEx.assign_role(user_id, "admin")
+
+      {roles3, _} = PermitEx.scope_data_for(user_id)
+      assert length(roles3) == 2
     end
   end
 end

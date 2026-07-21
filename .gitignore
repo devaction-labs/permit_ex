@@ -21,6 +21,7 @@ erl_crash.dump
 
 # Ignore package tarball (built via "mix hex.build").
 permission_ex-*.tar
+permit_ex-*.tar
 
 # Local editor metadata.
 /.idea/

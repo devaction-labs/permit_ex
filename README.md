@@ -7,20 +7,25 @@ permissions live in the database, roles collect permissions, users receive
 roles globally or inside an optional context, and your application checks the
 current scope.
 
+Users always receive permissions **through roles** — there is no direct
+user-permission assignment.
+
 Use it for:
 
 - Ecto applications that need database-backed roles and permissions.
 - Phoenix controllers and JSON APIs.
 - Phoenix LiveView routes and events.
+- Absinthe GraphQL fields.
 - SaaS applications with tenants, workspaces, organizations, projects, or accounts.
 - Regular applications without tenants.
 
 ## Status
 
-`0.1.0` is the first public release. The core API is usable, but you should test
-it in your app before relying on it in production. The migration is part of the
-public contract, so review the table names and indexes before publishing or
-installing it in an existing system.
+`0.3.0` is an additive release over the initial public API. Optional features
+(cache, wildcards, super roles) default to **off**, so existing installs keep
+the same behaviour until you opt in. The migration remains part of the public
+contract — review table names and indexes before installing into an existing
+system.
 
 ## Concepts
 
@@ -33,6 +38,8 @@ orders:view
 orders:manage
 settings:manage
 ```
+
+With `wildcards: true`, roles may also hold `orders:*` or `*`.
 
 PermitEx stores permissions as strings instead of atoms so they can be
 seeded, edited in admin screens, and exposed through APIs without creating atoms
@@ -81,7 +88,7 @@ Add the dependency:
 ```elixir
 def deps do
   [
-    {:permit_ex, "~> 0.1.0"}
+    {:permit_ex, "~> 0.3.0"}
   ]
 end
 ```
@@ -92,10 +99,22 @@ Configure your repo:
 config :permit_ex, repo: MyApp.Repo
 ```
 
+Optional features:
+
+```elixir
+config :permit_ex,
+  cache: true,
+  cache_ttl: :timer.minutes(5),
+  wildcards: true,
+  super_roles: ["super_admin"]
+```
+
 Install and run the migration:
 
 ```bash
 mix permit_ex.install
+# or, for integer user/context ids:
+# mix permit_ex.install --id-type id
 mix ecto.migrate
 ```
 
@@ -140,6 +159,7 @@ Check permissions and roles:
 
 ```elixir
 PermitEx.can?(scope, "orders:manage")
+PermitEx.can_any?(scope, ["orders:view", "orders:manage"])
 PermitEx.has_role?(scope, "admin")
 PermitEx.authorize(scope, "settings:manage")
 ```
@@ -152,6 +172,12 @@ Clone global role templates into a context:
 {:ok, roles} = PermitEx.clone_roles_to_context(workspace.id)
 ```
 
+Or seed directly into a context:
+
+```elixir
+PermitEx.seed!(definitions, context_id: workspace.id)
+```
+
 Then assign roles inside that context:
 
 ```elixir
@@ -162,7 +188,7 @@ scope = PermitEx.Scope.for_user(user, workspace)
 When a role name exists globally and inside the context, PermitEx resolves
 the context-specific role first.
 
-## Sync APIs
+## Sync and incremental APIs
 
 Replace all permissions for a role:
 
@@ -172,6 +198,13 @@ Replace all permissions for a role:
     "orders:view",
     "orders:manage"
   ])
+```
+
+Add or remove permissions without a full replace:
+
+```elixir
+{:ok, _count} = PermitEx.give_permission(role, "orders:delete")
+{:ok, _count} = PermitEx.revoke_permission(role, "orders:delete")
 ```
 
 Replace all roles for a user:
@@ -197,10 +230,13 @@ By default, sync APIs return an error for missing names:
 
 Pass `allow_missing?: true` only for intentionally partial imports.
 
+Locked roles return `{:error, :role_locked}` on permission/role mutations unless
+you pass `force?: true`.
+
 ## Phoenix and APIs
 
-PermitEx includes optional Plug and LiveView adapters. They are compiled
-only when the corresponding dependency is available.
+PermitEx includes optional Plug, LiveView, and Absinthe adapters. They are
+compiled only when the corresponding dependency is available.
 
 For controllers or JSON APIs:
 
@@ -220,6 +256,7 @@ More examples:
 
 - [Phoenix Guide](docs/phoenix.md)
 - [API Guide](docs/api.md)
+- [Absinthe Guide](docs/absinthe.md)
 - [Testing Guide](docs/testing.md)
 - [use_nexus Migration Notes](docs/use-nexus.md)
 
