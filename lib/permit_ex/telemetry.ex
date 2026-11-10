@@ -8,10 +8,12 @@ defmodule PermitEx.Telemetry do
     * measurements: `:duration` (native time)
     * metadata: `:user_id`, `:context_id`, `:cache_hit`
 
-  * `[:permit_ex, :authorize, :stop]` — emitted after permission/role checks
+  * `[:permit_ex, :authorize, :stop]` — emitted only by `PermitEx.authorize/3,4`
+    and `PermitEx.allowed?/2..4`. `can?/2`, `has_role?/2` and `authorize/2` do not
+    emit this event.
     * measurements: `:duration` (native time)
-    * metadata: `:result` (`:ok` | `:unauthorized` | `true` | `false`),
-      `:permission` or `:role`, `:check` (`:can?` | `:has_role?` | `:authorize` | ...)
+    * metadata: `:result` (`:ok` | `:error`), `:permission` (normalized string),
+      `:check` (always `:authorize`)
 
   * `[:permit_ex, :mutation, :stop]` — emitted after mutating APIs
     * measurements: `:duration`

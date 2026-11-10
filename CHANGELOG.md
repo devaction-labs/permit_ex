@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- `upsert_permission/3` now returns the persisted `id` on conflict (`returning: [:id]`),
+  matching `upsert_role/3`.
+- Telemetry docs for `[:permit_ex, :authorize, :stop]` now match behavior: only
+  `authorize/3,4` and `allowed?/2..4` emit it, with `:result` of `:ok | :error`.
+
+### Changed
+
+- Wildcard permission checks use direct set lookups instead of scanning all permissions.
+- Removed internal `if/else` in `PermitEx`, `PermitEx.Cache` and `PermitEx.Components`
+  in favor of `case`/function clauses. No behavior change.
+- `:telemetry` is now an explicit dependency.
+
 ## 0.3.0
 
 Additive release. No breaking changes when defaults stay off.

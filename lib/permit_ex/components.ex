@@ -24,12 +24,14 @@ if Code.ensure_loaded?(Phoenix.Component) do
     slot(:inner_block, required: true)
 
     def permit_can(assigns) do
-      if allowed?(assigns) do
-        ~H"""
-        <%= render_slot(@inner_block) %>
-        """
-      else
-        ~H""
+      case allowed?(assigns) do
+        true ->
+          ~H"""
+          <%= render_slot(@inner_block) %>
+          """
+
+        _ ->
+          ~H""
       end
     end
 

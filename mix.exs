@@ -30,6 +30,7 @@ defmodule PermitEx.MixProject do
     [
       {:ecto_sql, "~> 3.14"},
       {:postgrex, "~> 0.22", only: :test},
+      {:telemetry, "~> 1.0"},
       {:plug, "~> 1.19", optional: true},
       {:phoenix_live_view, "~> 1.1", optional: true},
       {:absinthe, "~> 1.10", optional: true},
