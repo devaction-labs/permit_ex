@@ -3,6 +3,33 @@ defmodule PermitExDbTest do
 
   alias PermitEx.{Permission, Role, UserRole}
 
+  describe "upsert idempotency" do
+    test "upsert_permission returns the persisted id on conflict" do
+      {:ok, first} = PermitEx.upsert_permission("idem:perm", %{description: "one"})
+      {:ok, second} = PermitEx.upsert_permission("idem:perm", %{description: "two"})
+
+      assert second.id == first.id
+      assert second.id == PermitEx.get_permission_by_name("idem:perm").id
+    end
+
+    test "upsert_role returns the persisted id on conflict" do
+      {:ok, first} = PermitEx.upsert_role("idem_role", %{description: "one"})
+      {:ok, second} = PermitEx.upsert_role("idem_role", %{description: "two"})
+
+      assert second.id == first.id
+      assert second.id == PermitEx.get_role_by_name("idem_role").id
+    end
+
+    test "upsert_context_role returns the persisted id on conflict" do
+      context_id = Ecto.UUID.generate()
+      {:ok, first} = PermitEx.upsert_context_role("idem_ctx", context_id, %{description: "one"})
+      {:ok, second} = PermitEx.upsert_context_role("idem_ctx", context_id, %{description: "two"})
+
+      assert second.id == first.id
+      assert PermitEx.get_role_by_id(second.id).id == first.id
+    end
+  end
+
   describe "global scope" do
     test "syncs global roles and permissions for a user" do
       user_id = Ecto.UUID.generate()

@@ -164,7 +164,8 @@ defmodule PermitEx do
     repo(opts).insert(
       Permission.changeset(%Permission{}, attrs),
       on_conflict: {:replace, [:description, :updated_at]},
-      conflict_target: :name
+      conflict_target: :name,
+      returning: [:id]
     )
   end
 
@@ -679,23 +680,24 @@ defmodule PermitEx do
     Telemetry.span(
       [:permit_ex, :scope, :load],
       %{user_id: user_id, context_id: context_id},
-      fn ->
-        if not skip_cache? do
-          case Cache.get(user_id, context_id) do
-            {:ok, data} ->
-              {data, %{cache_hit: true}}
-
-            :miss ->
-              data = load_scope_data(user_id, context_id, opts)
-              Cache.put(user_id, context_id, data)
-              {data, %{cache_hit: false}}
-          end
-        else
-          data = load_scope_data(user_id, context_id, opts)
-          {data, %{cache_hit: false}}
-        end
-      end
+      fn -> load_scope_data_cached(skip_cache?, user_id, context_id, opts) end
     )
+  end
+
+  defp load_scope_data_cached(true, user_id, context_id, opts) do
+    {load_scope_data(user_id, context_id, opts), %{cache_hit: false}}
+  end
+
+  defp load_scope_data_cached(false, user_id, context_id, opts) do
+    case Cache.get(user_id, context_id) do
+      {:ok, data} ->
+        {data, %{cache_hit: true}}
+
+      :miss ->
+        data = load_scope_data(user_id, context_id, opts)
+        Cache.put(user_id, context_id, data)
+        {data, %{cache_hit: false}}
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -782,12 +784,7 @@ defmodule PermitEx do
       definitions
       |> Keyword.get(:roles, [])
       |> Enum.each(fn {name, description, permissions} ->
-        {:ok, role} =
-          if context_id do
-            upsert_context_role(name, context_id, %{description: description}, repo: repo)
-          else
-            upsert_role(name, %{description: description}, repo: repo)
-          end
+        {:ok, role} = seed_role(context_id, name, description, repo)
 
         {:ok, _role} =
           sync_role_permissions(role, permissions, repo: repo, force?: true)
@@ -796,6 +793,14 @@ defmodule PermitEx do
       :ok
     end)
   end
+
+  defp seed_role(nil, name, description, repo),
+    do: upsert_role(name, %{description: description}, repo: repo)
+
+  defp seed_role(false, name, description, repo), do: seed_role(nil, name, description, repo)
+
+  defp seed_role(context_id, name, description, repo),
+    do: upsert_context_role(name, context_id, %{description: description}, repo: repo)
 
   @doc """
   Invalidates cached scope data.
@@ -852,36 +857,22 @@ defmodule PermitEx do
   defp permission_granted?(permissions, permission) do
     normalized = normalize_permission(permission)
 
-    cond do
-      collection_member?(permissions, normalized) ->
-        true
-
-      Config.wildcards?() ->
-        wildcard_match?(permissions, normalized)
-
-      true ->
-        false
+    case collection_member?(permissions, normalized) do
+      true -> true
+      false -> wildcard_granted?(Config.wildcards?(), permissions, normalized)
     end
   end
 
-  defp wildcard_match?(permissions, requested) do
-    permissions
-    |> to_permission_list()
-    |> Enum.any?(fn granted ->
-      granted == "*" or resource_wildcard?(granted, requested)
-    end)
+  defp wildcard_granted?(false, _permissions, _requested), do: false
+
+  defp wildcard_granted?(true, permissions, requested) do
+    collection_member?(permissions, "*") or resource_wildcard?(permissions, requested)
   end
 
-  defp resource_wildcard?(granted, requested) do
-    case String.split(granted, ":", parts: 2) do
-      [resource, "*"] ->
-        case String.split(requested, ":", parts: 2) do
-          [^resource, _action] -> true
-          _ -> false
-        end
-
-      _ ->
-        false
+  defp resource_wildcard?(permissions, requested) do
+    case String.split(requested, ":", parts: 2) do
+      [resource, _action] -> collection_member?(permissions, resource <> ":*")
+      _ -> false
     end
   end
 
@@ -892,10 +883,6 @@ defmodule PermitEx do
   end
 
   defp collection_member?(_, _), do: false
-
-  defp to_permission_list(%MapSet{} = set), do: MapSet.to_list(set)
-  defp to_permission_list(list) when is_list(list), do: Enum.map(list, &normalize_permission/1)
-  defp to_permission_list(_), do: []
 
   defp role_granted?(roles, role) when is_list(roles) do
     normalized = normalize_role(role)
@@ -975,7 +962,10 @@ defmodule PermitEx do
   end
 
   defp ensure_role_unlocked(%Role{locked: true}, opts) do
-    if Keyword.get(opts, :force?, false), do: :ok, else: {:error, :role_locked}
+    case Keyword.get(opts, :force?, false) do
+      falsy when falsy in [nil, false] -> {:error, :role_locked}
+      _ -> :ok
+    end
   end
 
   defp ensure_role_unlocked(%Role{}, _opts), do: :ok
